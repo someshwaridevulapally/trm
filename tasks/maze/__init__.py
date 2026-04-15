@@ -1,0 +1,1 @@
+"""Maze task package."""
