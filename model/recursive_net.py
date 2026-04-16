@@ -1,47 +1,54 @@
 """
-RecursiveNet – the main model.
+RecursiveNet — Main TRM Model.
 
-Pipeline:   Encoder  →  Iterative RecCore  →  Decoder
+Pipeline:
+    Encoder  →  TRMCore (micro/macro loops)  →  Decoder
 
-The model accepts a 2-D grid tensor, encodes it with a CNN, runs the encoded
-representation through a GRU-based recursive core for up to `max_iters` steps
-(with convergence-based early stopping), and finally decodes the hidden state
-through a task-specific output head.
+This replaces the old GRU-based RecursiveNet and now wires together
+the Encoder, TRMCore, and Decoder as described in:
+  "Less is More: Recursive Reasoning with Tiny Networks" (arXiv:2510.04871v1)
 
-For the ARC task an optional `context` vector (task embedding from
-MetaEncoder) is concatenated into the RecCore input at every iteration.
+Key differences from the old model:
+  • Core is TRMCore (2-level Transformer recursion), not GRUCell.
+  • Returns (final_logits, z_H_list) for deep supervision.
+  • No explicit "context" parameter — ARC uses ARCModel wrapper.
+  • hidden_dim default is 512 (paper setting).
 """
 
 import torch
 import torch.nn as nn
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 from model.encoder import Encoder
-from model.rec_core import RecCore
+from model.trm_core import TRMCore
 from model.decoder import Decoder
 
 
 class RecursiveNet(nn.Module):
     """
-    Full recursive neural network.
+    Full TRM: Encoder → TRMCore → Decoder.
 
     Args:
-        in_channels  (int):             Input grid channels (1 for binary mazes, etc.).
-        hidden_dim   (int):             Hidden-state dimensionality throughout the model.
-        head_sizes   (Dict[str, int]):  Task-name → output-size mapping for the decoder.
-        max_iters    (int):             Maximum recurrence iterations.
-        epsilon      (float):           Convergence threshold.
-        context_dim  (int):             Extra context size for ARC (0 = disabled).
+        in_channels (int):             Input grid channels.
+        hidden_dim  (int):             d_model throughout the model. Default 512.
+        head_sizes  (Dict[str, int]):  task_name → output_size.
+        T           (int):             Macro steps. Default 3.
+        n           (int):             Micro steps per macro. Default 6.
+        n_heads     (int):             Attention heads in Transformer. Default 8.
+        n_layers    (int):             Transformer layers. Default 2.
+        dropout     (float):           Dropout probability.
     """
 
     def __init__(
         self,
         in_channels: int = 1,
-        hidden_dim: int = 128,
+        hidden_dim: int = 512,
         head_sizes: Optional[Dict[str, int]] = None,
-        max_iters: int = 10,
-        epsilon: float = 1e-3,
-        context_dim: int = 0,
+        T: int = 3,
+        n: int = 6,
+        n_heads: int = 8,
+        n_layers: int = 2,
+        dropout: float = 0.0,
     ):
         super().__init__()
 
@@ -49,12 +56,13 @@ class RecursiveNet(nn.Module):
             head_sizes = {"maze": 4, "puzzle": 9}
 
         self.encoder = Encoder(in_channels=in_channels, hidden_dim=hidden_dim)
-        self.rec_core = RecCore(
+        self.trm_core = TRMCore(
             hidden_dim=hidden_dim,
-            input_dim=hidden_dim,
-            context_dim=context_dim,
-            max_iters=max_iters,
-            epsilon=epsilon,
+            T=T,
+            n=n,
+            n_heads=n_heads,
+            n_layers=n_layers,
+            dropout=dropout,
         )
         self.decoder = Decoder(hidden_dim=hidden_dim, head_sizes=head_sizes)
 
@@ -62,21 +70,36 @@ class RecursiveNet(nn.Module):
         self,
         x: torch.Tensor,
         task: str,
-        context: Optional[torch.Tensor] = None,
-    ) -> tuple[torch.Tensor, int]:
+        return_all: bool = False,
+    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """
-        End-to-end forward pass.
+        Full forward pass.
 
         Args:
-            x:       Grid input, shape (B, C, H, W).
-            task:    Which decoder head to use ("maze", "puzzle", "arc").
-            context: Optional ARC task embedding, shape (B, context_dim).
+            x:          Grid input, shape (B, C, H, W).
+            task:       Decoder head to use (e.g. "maze", "puzzle", "arc").
+            return_all: If True, also return decoded logits for all intermediate
+                        macro steps (for deep supervision during training).
+                        If False, only the final-step logits are returned.
 
         Returns:
-            logits:     Output logits from the selected decoder head.
-            num_iters:  How many RecCore iterations were executed.
+            logits:       Final macro-step logits. Shape depends on task.
+            logits_list:  List of T logit tensors (all macro steps).
+                          If return_all=False, this is [logits] (length 1).
         """
-        encoded = self.encoder(x)                               # (B, hidden_dim)
-        h, num_iters = self.rec_core(encoded, context=context)  # (B, hidden_dim)
-        logits = self.decoder(h, task=task)                     # (B, out_size)
-        return logits, num_iters
+        # 1. Encode grid → (B, 1, hidden_dim)
+        enc = self.encoder(x)
+
+        # 2. Run TRMCore → z_H (B, 1, D), z_H_list [T × (B, 1, D)]
+        z_H, z_H_list = self.trm_core(enc)
+
+        # 3. Decode final z_H
+        logits = self.decoder(z_H, task)
+
+        if return_all:
+            # Decode all intermediate z_H for deep supervision
+            logits_list = self.decoder.decode_all(z_H_list, task)
+        else:
+            logits_list = [logits]
+
+        return logits, logits_list
