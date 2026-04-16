@@ -1,65 +1,121 @@
-// Maze Solver UI - JavaScript Application
+// RecursiveNet Task Solver UI
 
 const API_BASE = '';
 
 // DOM Elements
-const canvas = document.getElementById('mazeCanvas');
+const canvas = document.getElementById('taskCanvas');
 const ctx = canvas.getContext('2d');
 const generateBtn = document.getElementById('generateBtn');
 const solveBtn = document.getElementById('solveBtn');
-const solveBfsBtn = document.getElementById('solveBfsBtn');
 const resetBtn = document.getElementById('resetBtn');
-const mazeOverlay = document.getElementById('mazeOverlay');
+const canvasOverlay = document.getElementById('canvasOverlay');
 const statusText = document.getElementById('statusText');
 const optimalStepsEl = document.getElementById('optimalSteps');
 const agentStepsEl = document.getElementById('agentSteps');
 const resultStatusEl = document.getElementById('resultStatus');
 const speedSlider = document.getElementById('speedSlider');
 const speedValue = document.getElementById('speedValue');
+const taskTitle = document.getElementById('taskTitle');
+const taskDescription = document.getElementById('taskDescription');
+const navTabs = document.querySelectorAll('.nav-tab');
 
 // State
+let currentTask = 'maze';
 let currentMaze = null;
 let currentStart = null;
 let currentGoal = null;
 let isAnimating = false;
-let animationSpeed = 100;
+let animationSpeed = 80;
 
-// Colors
+// Task configurations
+const TASKS = {
+    maze: {
+        title: 'Maze Solver',
+        description: 'Navigate from start to goal using the trained agent',
+        gridSize: 21,
+        available: true
+    },
+    puzzle: {
+        title: '8-Puzzle Solver',
+        description: 'Slide tiles to reach the goal configuration',
+        gridSize: 3,
+        available: false
+    },
+    arc: {
+        title: 'ARC-AGI Solver',
+        description: 'Learn patterns from examples and predict outputs',
+        gridSize: 30,
+        available: false
+    }
+};
+
+// Colors - high contrast for visibility
 const COLORS = {
-    wall: '#1a1a2e',
-    path: '#2a2a4e',
-    start: '#38ef7d',
-    goal: '#f5576c',
-    agent: '#00d9ff',
-    agentTrail: 'rgba(0, 217, 255, 0.3)',
-    bfsPath: '#ffd700',
-    bfsTrail: 'rgba(255, 215, 0, 0.3)'
+    wall: '#0d0d12',
+    path: '#3d3d5c',
+    start: '#10b981',
+    goal: '#f97316',
+    agent: '#8b5cf6',
+    agentTrail: 'rgba(139, 92, 246, 0.35)'
 };
 
 // Cell size calculation
-const GRID_SIZE = 21;
-const CELL_SIZE = Math.floor(canvas.width / GRID_SIZE);
+let GRID_SIZE = 21;
+let CELL_SIZE = Math.floor(canvas.width / GRID_SIZE);
 
 // Event Listeners
-generateBtn.addEventListener('click', generateMaze);
-solveBtn.addEventListener('click', () => solveMaze('ai'));
-solveBfsBtn.addEventListener('click', () => solveMaze('bfs'));
+generateBtn.addEventListener('click', generate);
+solveBtn.addEventListener('click', solve);
 resetBtn.addEventListener('click', reset);
+
 speedSlider.addEventListener('input', (e) => {
     animationSpeed = parseInt(e.target.value);
     speedValue.textContent = `${animationSpeed}ms`;
 });
 
+navTabs.forEach(tab => {
+    tab.addEventListener('click', () => switchTask(tab.dataset.task));
+});
+
 // Initialize
-drawBlankGrid();
+init();
+
+function init() {
+    updateTaskUI();
+    drawBlankGrid();
+}
+
+function switchTask(task) {
+    if (task === currentTask || isAnimating) return;
+    
+    const taskConfig = TASKS[task];
+    if (!taskConfig.available) {
+        alert(`${taskConfig.title} is not yet implemented. Coming soon!`);
+        return;
+    }
+    
+    currentTask = task;
+    navTabs.forEach(t => t.classList.remove('active'));
+    document.querySelector(`[data-task="${task}"]`).classList.add('active');
+    
+    reset();
+    updateTaskUI();
+}
+
+function updateTaskUI() {
+    const config = TASKS[currentTask];
+    taskTitle.textContent = config.title;
+    taskDescription.textContent = config.description;
+    GRID_SIZE = config.gridSize;
+    CELL_SIZE = Math.floor(canvas.width / GRID_SIZE);
+}
 
 function drawBlankGrid() {
     ctx.fillStyle = COLORS.path;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // Draw grid lines
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-    ctx.lineWidth = 0.5;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.lineWidth = 1;
     
     for (let i = 0; i <= GRID_SIZE; i++) {
         ctx.beginPath();
@@ -74,9 +130,8 @@ function drawBlankGrid() {
     }
 }
 
-function drawMaze(maze, start, goal, agentPath = [], pathColor = COLORS.agent, trailColor = COLORS.agentTrail) {
-    // Clear canvas
-    ctx.fillStyle = '#0a0a15';
+function drawMaze(maze, start, goal, agentPath = []) {
+    ctx.fillStyle = '#0f0f14';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
     // Draw maze cells
@@ -85,18 +140,14 @@ function drawMaze(maze, start, goal, agentPath = [], pathColor = COLORS.agent, t
             const x = c * CELL_SIZE;
             const y = r * CELL_SIZE;
             
-            if (maze[r][c] === 1) {
-                ctx.fillStyle = COLORS.wall;
-            } else {
-                ctx.fillStyle = COLORS.path;
-            }
+            ctx.fillStyle = maze[r][c] === 1 ? COLORS.wall : COLORS.path;
             ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
         }
     }
     
     // Draw agent trail
     if (agentPath.length > 1) {
-        ctx.fillStyle = trailColor;
+        ctx.fillStyle = COLORS.agentTrail;
         for (let i = 0; i < agentPath.length - 1; i++) {
             const step = agentPath[i];
             const x = step.col * CELL_SIZE;
@@ -108,12 +159,13 @@ function drawMaze(maze, start, goal, agentPath = [], pathColor = COLORS.agent, t
     // Draw current agent position
     if (agentPath.length > 0) {
         const current = agentPath[agentPath.length - 1];
-        ctx.fillStyle = pathColor;
         const x = current.col * CELL_SIZE;
         const y = current.row * CELL_SIZE;
+        
+        ctx.fillStyle = COLORS.agent;
         ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
         
-        // Draw agent circle
+        // Agent marker
         ctx.beginPath();
         ctx.arc(x + CELL_SIZE / 2, y + CELL_SIZE / 2, CELL_SIZE / 3, 0, Math.PI * 2);
         ctx.fillStyle = 'white';
@@ -122,14 +174,14 @@ function drawMaze(maze, start, goal, agentPath = [], pathColor = COLORS.agent, t
     
     // Draw start
     if (start) {
-        ctx.fillStyle = COLORS.start;
         const x = start[1] * CELL_SIZE;
         const y = start[0] * CELL_SIZE;
+        
+        ctx.fillStyle = COLORS.start;
         ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
         
-        // Draw S
         ctx.fillStyle = 'white';
-        ctx.font = `bold ${CELL_SIZE * 0.6}px Arial`;
+        ctx.font = `bold ${CELL_SIZE * 0.5}px Inter, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('S', x + CELL_SIZE / 2, y + CELL_SIZE / 2);
@@ -137,24 +189,30 @@ function drawMaze(maze, start, goal, agentPath = [], pathColor = COLORS.agent, t
     
     // Draw goal
     if (goal) {
-        ctx.fillStyle = COLORS.goal;
         const x = goal[1] * CELL_SIZE;
         const y = goal[0] * CELL_SIZE;
+        
+        ctx.fillStyle = COLORS.goal;
         ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
         
-        // Draw G
         ctx.fillStyle = 'white';
-        ctx.font = `bold ${CELL_SIZE * 0.6}px Arial`;
+        ctx.font = `bold ${CELL_SIZE * 0.5}px Inter, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('G', x + CELL_SIZE / 2, y + CELL_SIZE / 2);
     }
 }
 
-async function generateMaze() {
+async function generate() {
     if (isAnimating) return;
     
-    setStatus('Generating maze...', 'solving');
+    if (currentTask === 'maze') {
+        await generateMaze();
+    }
+}
+
+async function generateMaze() {
+    setStatus('Generating...', 'solving');
     generateBtn.disabled = true;
     
     try {
@@ -165,40 +223,40 @@ async function generateMaze() {
         currentStart = data.start;
         currentGoal = data.goal;
         
-        mazeOverlay.classList.add('hidden');
+        canvasOverlay.classList.add('hidden');
         drawMaze(currentMaze, currentStart, currentGoal);
         
         optimalStepsEl.textContent = data.optimal_steps;
-        agentStepsEl.textContent = '-';
-        resultStatusEl.textContent = '-';
+        agentStepsEl.textContent = '—';
+        resultStatusEl.textContent = '—';
+        resultStatusEl.style.color = '';
         
-        setStatus('Maze generated! Click Solve to start.', '');
+        setStatus('Ready to solve', 'ready');
         solveBtn.disabled = false;
-        solveBfsBtn.disabled = false;
     } catch (error) {
-        setStatus('Error generating maze: ' + error.message, 'failed');
+        setStatus('Error: ' + error.message, 'failed');
     }
     
     generateBtn.disabled = false;
 }
 
-async function solveMaze(method = 'ai') {
+async function solve() {
     if (isAnimating || !currentMaze) return;
     
+    if (currentTask === 'maze') {
+        await solveMaze();
+    }
+}
+
+async function solveMaze() {
     isAnimating = true;
     solveBtn.disabled = true;
-    solveBfsBtn.disabled = true;
     generateBtn.disabled = true;
     
-    const isAI = method === 'ai';
-    const endpoint = isAI ? '/api/solve' : '/api/solve_bfs';
-    const pathColor = isAI ? COLORS.agent : COLORS.bfsPath;
-    const trailColor = isAI ? COLORS.agentTrail : COLORS.bfsTrail;
-    
-    setStatus(isAI ? '🤖 AI Agent solving...' : '📐 BFS solving...', 'solving');
+    setStatus('Agent solving...', 'solving');
     
     try {
-        const response = await fetch(`${API_BASE}${endpoint}`, { method: 'POST' });
+        const response = await fetch(`${API_BASE}/api/solve`, { method: 'POST' });
         const data = await response.json();
         
         if (data.error) {
@@ -206,7 +264,6 @@ async function solveMaze(method = 'ai') {
             isAnimating = false;
             generateBtn.disabled = false;
             solveBtn.disabled = false;
-            solveBfsBtn.disabled = false;
             return;
         }
         
@@ -215,8 +272,8 @@ async function solveMaze(method = 'ai') {
         for (let i = 0; i < path.length; i++) {
             if (!isAnimating) break;
             
-            drawMaze(currentMaze, currentStart, currentGoal, path.slice(0, i + 1), pathColor, trailColor);
-            setStatus(`${isAI ? '🤖 AI Agent' : '📐 BFS'}: Step ${i}/${path.length - 1}`, 'solving');
+            drawMaze(currentMaze, currentStart, currentGoal, path.slice(0, i + 1));
+            setStatus(`Solving... Step ${i}/${path.length - 1}`, 'solving');
             
             await sleep(animationSpeed);
         }
@@ -225,23 +282,22 @@ async function solveMaze(method = 'ai') {
         agentStepsEl.textContent = data.steps;
         
         if (data.solved) {
-            setStatus(`✓ ${isAI ? 'AI Agent' : 'BFS'} solved in ${data.steps} steps!`, 'success');
-            resultStatusEl.textContent = '✓ Solved';
-            resultStatusEl.style.color = '#38ef7d';
+            setStatus(`Solved in ${data.steps} steps`, 'success');
+            resultStatusEl.textContent = 'Solved';
+            resultStatusEl.style.color = '#22c55e';
         } else {
-            setStatus(`✗ ${isAI ? 'AI Agent' : 'BFS'} failed to solve`, 'failed');
-            resultStatusEl.textContent = '✗ Failed';
-            resultStatusEl.style.color = '#f5576c';
+            setStatus('Failed to solve', 'failed');
+            resultStatusEl.textContent = 'Failed';
+            resultStatusEl.style.color = '#ef4444';
         }
         
     } catch (error) {
-        setStatus('Error solving: ' + error.message, 'failed');
+        setStatus('Error: ' + error.message, 'failed');
     }
     
     isAnimating = false;
     generateBtn.disabled = false;
     solveBtn.disabled = false;
-    solveBfsBtn.disabled = false;
 }
 
 function reset() {
@@ -251,22 +307,21 @@ function reset() {
     currentGoal = null;
     
     drawBlankGrid();
-    mazeOverlay.classList.remove('hidden');
+    canvasOverlay.classList.remove('hidden');
     
     solveBtn.disabled = true;
-    solveBfsBtn.disabled = true;
     
-    optimalStepsEl.textContent = '-';
-    agentStepsEl.textContent = '-';
-    resultStatusEl.textContent = '-';
+    optimalStepsEl.textContent = '—';
+    agentStepsEl.textContent = '—';
+    resultStatusEl.textContent = '—';
     resultStatusEl.style.color = '';
     
-    setStatus('Ready', '');
+    setStatus('Ready', 'ready');
 }
 
 function setStatus(text, className) {
     statusText.textContent = text;
-    statusText.className = 'status-text';
+    statusText.className = 'status-badge';
     if (className) {
         statusText.classList.add(className);
     }
