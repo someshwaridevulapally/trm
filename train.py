@@ -36,7 +36,7 @@ def parse_args() -> argparse.Namespace:
                         help="Convergence threshold for early stopping in RecCore.")
 
     # ── Training hyperparameters ──────────────────────────────────────────
-    parser.add_argument("--epochs", type=int, default=20,
+    parser.add_argument("--epochs", type=int, default=15,
                         help="Number of training epochs.")
     parser.add_argument("--batch_size", type=int, default=128,
                         help="Batch size for training.")
@@ -46,7 +46,7 @@ def parse_args() -> argparse.Namespace:
                         help="Random seed for reproducibility.")
 
     # ── Data parameters ───────────────────────────────────────────────────
-    parser.add_argument("--num_samples", type=int, default=10000,
+    parser.add_argument("--num_samples", type=int, default=5000,
                         help="Number of mazes or puzzles to generate (ignored for ARC).")
     parser.add_argument("--arc_data_dir", type=str, default="data/arc",
                         help="Path to ARC-AGI dataset root (for --task arc).")
