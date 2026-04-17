@@ -35,9 +35,10 @@ def load_model():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = RecursiveNet(
         in_channels=2,
-        hidden_dim=128,
+        hidden_dim=256,
         head_sizes={"maze": 4},
-        max_iters=10,
+        T=3,
+        n=6,
     ).to(device)
     
     ckpt_path = "checkpoints/maze/best_model.pt"
@@ -129,7 +130,7 @@ def solve():
         tensor = torch.tensor(np.stack([ch_maze, ch_pos])).unsqueeze(0).to(device)
         
         with torch.no_grad():
-            logits, n_iters = model(tensor, task="maze")
+            logits, logits_list = model(tensor, task="maze")
         
         # Sort actions by model confidence (highest first)
         action_probs = torch.softmax(logits, dim=-1).squeeze().cpu().numpy()
@@ -153,7 +154,7 @@ def solve():
                     "row": nr,
                     "col": nc,
                     "action": action_names[action],
-                    "iterations": n_iters,
+                    "iterations": len(logits_list),
                     "confidence": float(action_probs[action])
                 }]
                 

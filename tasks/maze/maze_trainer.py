@@ -33,7 +33,7 @@ def train_maze(
     epochs: int = 20,
     batch_size: int = 128,
     lr: float = 1e-3,
-    num_mazes: int = 10_000,
+    num_mazes: int = 5_000,
     device: str = "cpu",
     seed: int = 42,
     ema_decay: float = 0.999,

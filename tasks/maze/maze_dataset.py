@@ -37,7 +37,7 @@ class MazeDataset(Dataset):
 
     def __init__(
         self,
-        num_mazes: int = 10_000,
+        num_mazes: int = 5_000,
         maze_h: int = 10,
         maze_w: int = 10,
         seed: int = 42,

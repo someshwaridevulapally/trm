@@ -59,7 +59,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed",       type=int,   default=42,  help="Random seed.")
 
     # ── Data parameters ───────────────────────────────────────────────────
-    parser.add_argument("--num_samples", type=int, default=10_000,
+    parser.add_argument("--num_samples", type=int, default=5_000,
                         help="Mazes / puzzles / Sudoku boards to generate.")
     parser.add_argument("--arc_data_dir", type=str, default="data/arc",
                         help="Path to ARC-AGI dataset root (for --task arc).")
