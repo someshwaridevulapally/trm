@@ -2,19 +2,23 @@
 Training and evaluation loop for the 8-puzzle task.
 
 Updated for TRM (arXiv:2510.04871v1):
-  - Deep supervision over all T macro-step outputs.
+  - Tile-tokenized encoder (9 tokens) — critical fix for spatial reasoning.
+  - Deep supervision with RAMPED weights (later steps weighted more).
+  - Extended curriculum: max scramble 40 moves (covers all 8-puzzle states).
+  - T=5 macro steps, n=8 micro steps by default.
+  - LR warmup (5 epochs linear) + cosine decay.
   - EMA (Exponential Moving Average) on model weights.
-  - AdamW optimiser with cosine LR schedule.
-  - Curriculum learning preserved (scramble depth grows over epochs).
+  - AdamW optimiser.
 """
 
 import os
 import csv
+import math
 import random
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR
 from tqdm import tqdm
 from typing import Dict, Any
 
@@ -23,15 +27,25 @@ import numpy as np
 from model.recursive_net import RecursiveNet
 from tasks.puzzle.puzzle_dataset import PuzzleDataset, _state_to_onehot
 from tasks.puzzle.puzzle_env import scramble_puzzle, solve_puzzle, GOAL_STATE, _state_to_tuple, _find_blank
-from utils.deep_supervision import deep_supervision_loss
+from utils.deep_supervision import deep_supervision_loss, make_ramp_weights
 from utils.ema import EMA
+
+
+def _warmup_cosine_schedule(warmup_epochs: int, total_epochs: int):
+    """LR lambda: linear warmup for `warmup_epochs`, then cosine decay."""
+    def _schedule(epoch):
+        if epoch < warmup_epochs:
+            return float(epoch + 1) / float(max(1, warmup_epochs))
+        progress = (epoch - warmup_epochs) / max(1, total_epochs - warmup_epochs)
+        return 0.5 * (1.0 + math.cos(math.pi * progress))
+    return _schedule
 
 
 def train_puzzle(
     hidden_dim: int = 512,
-    T: int = 3,
-    n: int = 6,
-    epochs: int = 20,
+    T: int = 5,
+    n: int = 8,
+    epochs: int = 40,
     batch_size: int = 128,
     lr: float = 1e-3,
     num_puzzles: int = 10_000,
@@ -39,12 +53,13 @@ def train_puzzle(
     seed: int = 42,
     ema_decay: float = 0.999,
     max_iters: int = None,   # legacy alias
+    warmup_epochs: int = 5,
 ) -> Dict[str, Any]:
     """
     Full training + evaluation pipeline for the 8-puzzle task
-    with curriculum learning + TRM deep supervision.
+    with tile-tokenized encoder, ramped deep supervision, and extended curriculum.
     """
-    if max_iters is not None and T == 3:
+    if max_iters is not None and T == 5:
         T = max_iters
 
     os.makedirs("checkpoints/puzzle", exist_ok=True)
@@ -53,18 +68,36 @@ def train_puzzle(
     device = torch.device(device)
 
     # ── Model ─────────────────────────────────────────────────────────────
+    # encoder_mode='tile_embed': 9-token encoder, one token per board cell.
+    # This is the key fix — the Transformer can now attend across tile positions.
     model = RecursiveNet(
-        in_channels=9,           # one-hot tile channels
+        in_channels=9,           # one-hot tile channels  (= num tile values)
         hidden_dim=hidden_dim,
         head_sizes={"puzzle": 9},
         T=T,
         n=n,
+        encoder_mode="tile_embed",
+        grid_h=3,
+        grid_w=3,
     ).to(device)
 
+    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Model parameters: {total_params:,}")
+
     optimiser = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
-    scheduler = CosineAnnealingLR(optimiser, T_max=epochs)
+
+    # Warmup + cosine decay schedule
+    scheduler = LambdaLR(
+        optimiser,
+        lr_lambda=_warmup_cosine_schedule(warmup_epochs, epochs),
+    )
+
     criterion = nn.CrossEntropyLoss(reduction="none")
     ema = EMA(model, decay=ema_decay)
+
+    # Ramped deep supervision weights: later macro steps get higher weight
+    ds_weights = make_ramp_weights(T)
+    print(f"Deep supervision weights (T={T}): {[f'{w:.3f}' for w in ds_weights]}")
 
     csv_path = "logs/puzzle_training.csv"
     csv_file = open(csv_path, "w", newline="")
@@ -73,15 +106,16 @@ def train_puzzle(
 
     best_val_acc = 0.0
 
-    # ── Training loop with curriculum ─────────────────────────────────────
+    # ── Training loop with extended curriculum ─────────────────────────────
     for epoch in range(1, epochs + 1):
-        # Curriculum: linearly increase max scramble depth from 5 → 30
+        # Extended curriculum: scramble depth 5 → 40 (covers all 8-puzzle configs)
         progress = (epoch - 1) / max(epochs - 1, 1)
         curr_min = 5
-        curr_max = int(5 + 25 * progress)
+        curr_max = int(5 + 35 * progress)   # was 25, now 35 → reaches 40
         curr_max = max(curr_max, curr_min)
 
-        print(f"\nEpoch {epoch}/{epochs}  curriculum: scramble {curr_min}–{curr_max}")
+        print(f"\nEpoch {epoch}/{epochs}  curriculum: scramble {curr_min}–{curr_max}  "
+              f"lr={scheduler.get_last_lr()[0]:.2e}")
 
         n_epoch = min(num_puzzles, 2000 + epoch * 400)
         dataset = PuzzleDataset(
@@ -111,10 +145,12 @@ def train_puzzle(
 
             _, logits_list = model(states, task="puzzle", return_all=True)
 
+            # Use ramped weights: final macro step gets the most gradient
             loss = deep_supervision_loss(
                 logits_list=logits_list,
                 targets=actions,
                 criterion=criterion,
+                weights=ds_weights,
             )
 
             optimiser.zero_grad()
@@ -194,7 +230,7 @@ def evaluate_puzzle_end_to_end(
 
     for i in tqdm(range(num_puzzles), desc="Puzzle end-to-end eval"):
         random.seed(seed + i)
-        depth = random.randint(10, 30)
+        depth = random.randint(10, 40)    # test up to 40-move scrambles
         state, optimal_actions = scramble_puzzle(num_moves=depth, seed=seed + i)
         total_optimal += len(optimal_actions)
 

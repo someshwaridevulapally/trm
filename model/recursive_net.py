@@ -13,6 +13,8 @@ Key differences from the old model:
   • Returns (final_logits, z_H_list) for deep supervision.
   • No explicit "context" parameter — ARC uses ARCModel wrapper.
   • hidden_dim default is 512 (paper setting).
+  • Encoder is now tile-tokenized for puzzle tasks (9 tokens, one per cell),
+    enabling the Transformer to attend across tile positions spatially.
 """
 
 import torch
@@ -44,18 +46,27 @@ class RecursiveNet(nn.Module):
         in_channels: int = 1,
         hidden_dim: int = 512,
         head_sizes: Optional[Dict[str, int]] = None,
-        T: int = 3,
-        n: int = 6,
+        T: int = 5,
+        n: int = 8,
         n_heads: int = 8,
         n_layers: int = 2,
         dropout: float = 0.0,
+        encoder_mode: str = "grid_patch",   # 'tile_embed' for puzzle/sudoku
+        grid_h: int = 3,
+        grid_w: int = 3,
     ):
         super().__init__()
 
         if head_sizes is None:
             head_sizes = {"maze": 4, "puzzle": 9}
 
-        self.encoder = Encoder(in_channels=in_channels, hidden_dim=hidden_dim)
+        self.encoder = Encoder(
+            in_channels=in_channels,
+            hidden_dim=hidden_dim,
+            grid_h=grid_h,
+            grid_w=grid_w,
+            mode=encoder_mode,
+        )
         self.trm_core = TRMCore(
             hidden_dim=hidden_dim,
             T=T,

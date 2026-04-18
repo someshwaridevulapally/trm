@@ -5,14 +5,34 @@ Computes the loss across ALL intermediate macro-step predictions
 (z_H decoded at every macro step T), as described in:
   "Less is More: Recursive Reasoning with Tiny Networks" (arXiv:2510.04871v1)
 
-The loss is averaged uniformly across all macro steps.  This provides
-a learning signal at every level of the macro recursion and prevents
-vanishing gradients through deep recursion.
+The loss is averaged across macro steps with optional per-step weights.
+Use `make_ramp_weights(T)` to give later macro steps a higher gradient
+signal — this works better for hard puzzles than uniform weighting.
 """
 
 import torch
 import torch.nn as nn
 from typing import List, Optional
+
+
+def make_ramp_weights(T: int) -> List[float]:
+    """
+    Generate linearly-increasing per-step weights for deep supervision.
+
+    Later macro steps get higher weight because they are closer to the final
+    answer and should provide a stronger training signal.
+
+    Example for T=5: [1, 2, 3, 4, 5] → normalised → [0.067, 0.133, 0.2, 0.267, 0.333]
+
+    Args:
+        T: Number of macro steps.
+
+    Returns:
+        List of T normalised float weights that sum to 1.0.
+    """
+    raw = list(range(1, T + 1))          # [1, 2, ..., T]
+    total = sum(raw)
+    return [r / total for r in raw]
 
 
 def deep_supervision_loss(

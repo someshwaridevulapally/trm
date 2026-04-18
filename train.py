@@ -4,13 +4,14 @@ CLI entry point for training the TRM (Tiny Recursion Model).
 Updated for arXiv:2510.04871v1 "Less is More: Recursive Reasoning with Tiny Networks":
   - T (macro steps) and n (micro steps) replace old max_iters
   - hidden_dim default = 512 (paper setting)
-  - AdamW + cosine LR scheduler
+  - AdamW + warmup-cosine LR scheduler
   - EMA on model weights
+  - Puzzle: tile-tokenized encoder (9 tokens), ramped deep supervision
   - Sudoku task added
 
 Usage:
     python train.py --task maze    --epochs 20 --hidden_dim 512 --T 3 --n 6
-    python train.py --task puzzle  --epochs 30 --hidden_dim 512
+    python train.py --task puzzle  --epochs 40 --hidden_dim 512 --T 5 --n 8
     python train.py --task arc     --epochs 20 --arc_data_dir data/arc
     python train.py --task sudoku  --epochs 30 --difficulty extreme
 """
@@ -36,10 +37,10 @@ def parse_args() -> argparse.Namespace:
     # ── TRM model hyperparameters ──────────────────────────────────────────
     parser.add_argument("--hidden_dim", type=int, default=512,
                         help="Model hidden dimensionality (d_model). Paper uses 512.")
-    parser.add_argument("--T", type=int, default=3,
-                        help="Number of macro (outer) recursion steps.")
-    parser.add_argument("--n", type=int, default=6,
-                        help="Number of micro (inner) steps per macro step.")
+    parser.add_argument("--T", type=int, default=5,
+                        help="Number of macro (outer) recursion steps. Default 5 for puzzle.")
+    parser.add_argument("--n", type=int, default=8,
+                        help="Number of micro (inner) steps per macro step. Default 8 for puzzle.")
     parser.add_argument("--n_heads", type=int, default=8,
                         help="Attention heads in the Transformer core.")
     parser.add_argument("--n_layers", type=int, default=2,
@@ -52,14 +53,14 @@ def parse_args() -> argparse.Namespace:
                         help="[Deprecated] Use --T instead. Maps to macro steps.")
 
     # ── Training hyperparameters ───────────────────────────────────────────
-    parser.add_argument("--epochs",     type=int,   default=20,  help="Number of training epochs.")
+    parser.add_argument("--epochs",     type=int,   default=40,  help="Number of training epochs.")
     parser.add_argument("--batch_size", type=int,   default=128, help="Batch size for training.")
     parser.add_argument("--lr",         type=float, default=1e-3, help="Learning rate for AdamW.")
     parser.add_argument("--ema_decay",  type=float, default=0.999, help="EMA decay factor.")
     parser.add_argument("--seed",       type=int,   default=42,  help="Random seed.")
 
     # ── Data parameters ───────────────────────────────────────────────────
-    parser.add_argument("--num_samples", type=int, default=5_000,
+    parser.add_argument("--num_samples", type=int, default=10_000,
                         help="Mazes / puzzles / Sudoku boards to generate.")
     parser.add_argument("--arc_data_dir", type=str, default="data/arc",
                         help="Path to ARC-AGI dataset root (for --task arc).")
