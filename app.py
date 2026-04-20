@@ -61,7 +61,7 @@ def load_maze_model():
         in_channels=2,
         hidden_dim=256,
         head_sizes={"maze": 4},
-        T=3, n=6,
+        T=3, n=6,  # Maze is simpler, kept at 3,6
     ).to(device)
     ckpt = "checkpoints/maze/best_model.pt"
     if os.path.exists(ckpt):
@@ -80,12 +80,12 @@ def load_puzzle_model():
     global puzzle_model, device
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # NOTE: must match training config — tile-tokenized encoder (9 tokens), T=3, n=6
+    # NOTE: must match training config — tile-tokenized encoder (9 tokens), T=5, n=8
     puzzle_model = RecursiveNet(
         in_channels=9,
         hidden_dim=512,
         head_sizes={"puzzle": 9},
-        T=3, n=6,
+        T=5, n=8,
         encoder_mode="tile_embed",
         grid_h=3, grid_w=3,
     ).to(device)
@@ -128,15 +128,15 @@ def load_arc_model():
 
     # Load model
     from tasks.arc.arc_trainer import ARCModel
-    arc_model = ARCModel(hidden_dim=512, T=3, n=6).to(device)
+    arc_model = ARCModel(hidden_dim=512, T=5, n=8).to(device)
     ckpt = "checkpoints/arc/best_model.pt"
     if os.path.exists(ckpt):
         try:
             arc_model.load_state_dict(torch.load(ckpt, map_location=device, weights_only=True))
             print(f"[OK] Loaded ARC checkpoint: {ckpt}")
         except Exception as e:
-            print(f"[WARN] ARC checkpoint incompatible: {e}")
-            print("[WARN] Using random weights for ARC.")
+            print(f"[ERROR] ARC checkpoint incompatible (likely due to decoder upgrade): {e}")
+            print("[WARN] Using random weights for ARC. Please run: python train.py --task arc")
     else:
         print(f"[WARN] ARC checkpoint not found: {ckpt}. Using random weights.")
     arc_model.eval()

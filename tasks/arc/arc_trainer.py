@@ -24,7 +24,7 @@ import numpy as np
 from model.recursive_net import RecursiveNet
 from tasks.arc.arc_dataset import ARCDataset, arc_collate_fn, MAX_H, MAX_W
 from tasks.arc.meta_encoder import MetaEncoder
-from utils.deep_supervision import deep_supervision_loss
+from utils.deep_supervision import deep_supervision_loss, make_ramp_weights
 from utils.ema import EMA
 
 
@@ -122,7 +122,7 @@ def train_arc(
     try:
         full_dataset = ARCDataset(data_dir=data_dir, split="training", max_tasks=max_tasks)
     except FileNotFoundError as e:
-        print(f"\n⚠ ARC data not found: {e}")
+        print(f"\nWARNING: ARC data not found: {e}")
         print("  git clone https://github.com/fchollet/ARC-AGI.git data/arc")
         return {"error": "ARC data not found"}
 
@@ -143,8 +143,16 @@ def train_arc(
     model     = ARCModel(hidden_dim=hidden_dim, T=T, n=n).to(device)
     optimiser = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = CosineAnnealingLR(optimiser, T_max=epochs)
-    criterion = nn.CrossEntropyLoss(reduction="none")
+    
+    # ARC grids are heavily skewed toward black background (0). 
+    # Downweight 0 to prevent the model from collapsing to all-black predictions.
+    class_weights = torch.ones(10, device=device)
+    class_weights[0] = 0.1
+    criterion = nn.CrossEntropyLoss(weight=class_weights, reduction="none")
     ema       = EMA(model, decay=ema_decay)
+    
+    # Deep supervision weights (ramp up towards the final macro step)
+    ramp_weights = make_ramp_weights(T)
 
     csv_path = "logs/arc_training.csv"
     csv_file = open(csv_path, "w", newline="")
@@ -175,6 +183,7 @@ def train_arc(
                 targets=test_out,
                 criterion=criterion,
                 mask=mask,
+                weights=ramp_weights,
             )
 
             optimiser.zero_grad()
