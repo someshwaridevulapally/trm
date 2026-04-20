@@ -206,10 +206,17 @@ def solve():
         tensor = torch.tensor(np.stack([ch_maze, ch_pos])).unsqueeze(0).to(device)
 
         with torch.no_grad():
-            logits, logits_list = maze_model(tensor, task="maze")
+            logits, logits_list = maze_model(tensor, task="maze", return_all=True)
 
         action_probs   = torch.softmax(logits, dim=-1).squeeze().cpu().numpy()
         sorted_actions = np.argsort(-action_probs)
+
+        # Build per-macro-step thinking trace
+        _dir_keys = ["up", "down", "left", "right"]
+        macro_steps = []
+        for ml in logits_list:
+            sp = torch.softmax(ml, dim=-1).squeeze().cpu().numpy()
+            macro_steps.append({k: round(float(sp[i]), 4) for i, k in enumerate(_dir_keys)})
 
         found_next = False
         for action in sorted_actions:
@@ -222,11 +229,12 @@ def solve():
                 tried_actions.add(action)
                 visited_states.add((nr, nc))
                 new_path = path_so_far + [{
-                    "row":        nr,
-                    "col":        nc,
-                    "action":     action_names[action],
-                    "iterations": len(logits_list),
-                    "confidence": float(action_probs[action])
+                    "row":         nr,
+                    "col":         nc,
+                    "action":      action_names[action],
+                    "iterations":  len(logits_list),
+                    "confidence":  float(action_probs[action]),
+                    "macro_steps": macro_steps
                 }]
                 stack.append((nr, nc, new_path, set()))
                 found_next = True
@@ -323,7 +331,7 @@ def puzzle_solve():
         tensor = torch.tensor(oh).unsqueeze(0).to(device)
 
         with torch.no_grad():
-            logits, _ = puzzle_model(tensor, task="puzzle")
+            logits, logits_list = puzzle_model(tensor, task="puzzle", return_all=True)
 
         probs  = torch.softmax(logits, dim=-1).squeeze().cpu().numpy()
         sorted_actions = np.argsort(-probs)
@@ -333,14 +341,23 @@ def puzzle_solve():
         for action in sorted_actions:
             tr, tc = action // 3, action % 3
             if abs(br - tr) + abs(bc - tc) == 1:
+                # Build per-macro-step thinking trace for this move
+                macro_steps = []
+                for ml in logits_list:
+                    sp = torch.softmax(ml, dim=-1).squeeze().cpu().numpy()
+                    macro_steps.append({
+                        "probs":             [round(float(v), 4) for v in sp.tolist()],
+                        "chosen_confidence": round(float(sp[action]), 4)
+                    })
                 new_state        = state.copy()
                 new_state[br, bc] = new_state[tr, tc]
                 new_state[tr, tc] = 0
                 state = new_state
                 states.append(state.tolist())
                 actions_taken.append({
-                    "action":     int(action),
-                    "confidence": float(probs[action])
+                    "action":      int(action),
+                    "confidence":  float(probs[action]),
+                    "macro_steps": macro_steps
                 })
                 moved = True
                 break
@@ -433,7 +450,7 @@ def arc_solve():
 
     # Run model
     with torch.no_grad():
-        logits, _ = arc_model(demo_inputs, demo_outputs, demo_mask, test_in)
+        logits, logits_list = arc_model(demo_inputs, demo_outputs, demo_mask, test_in, return_all=True)
 
     # logits shape: (1, MAX_H, MAX_W, 10) -> predicted grid
     pred = logits.argmax(dim=-1).squeeze(0).cpu().numpy()  # (MAX_H, MAX_W)
@@ -456,14 +473,21 @@ def arc_solve():
     cell_acc = correct / max(total, 1)
     grid_match = (correct == total)
 
+    # Build per-macro-step grid snapshots for the thinking panel
+    macro_grids = []
+    for ml in logits_list:
+        step_pred = ml.argmax(dim=-1).squeeze(0).cpu().numpy()
+        macro_grids.append(step_pred[:out_h, :out_w].tolist())
+
     return jsonify({
-        "prediction":  pred_cropped,
-        "ground_truth": gt,
+        "prediction":    pred_cropped,
+        "ground_truth":  gt,
         "cell_accuracy": round(cell_acc, 4),
-        "grid_match":   grid_match,
-        "output_size":  [out_h, out_w],
-        "solved":       grid_match,
-        "status":       "solved" if grid_match else "failed"
+        "grid_match":    grid_match,
+        "output_size":   [out_h, out_w],
+        "macro_grids":   macro_grids,
+        "solved":        grid_match,
+        "status":        "solved" if grid_match else "failed"
     })
 
 

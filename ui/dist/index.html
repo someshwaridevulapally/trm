@@ -1,183 +1,112 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Recursive Neural Network - Task Solver</title>
-    <link rel="stylesheet" href="styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TRM · Arena — Transformer Reasoning Model</title>
+  <meta name="description" content="TRM Arena: watch a Transformer Reasoning Model solve Maze, Puzzle, Sudoku and ARC tasks in real time.">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-    <div class="app">
-        <!-- Sidebar -->
-        <aside class="sidebar">
-            <div class="logo">
-                <div class="logo-icon">RNN</div>
-                <span>RecursiveNet</span>
-            </div>
-            
-            <nav class="nav-tabs">
-                <button class="nav-tab active" data-task="maze">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="3" y="3" width="18" height="18" rx="2"/>
-                        <path d="M3 9h18M9 3v18"/>
-                    </svg>
-                    Maze
-                </button>
-                <button class="nav-tab" data-task="puzzle">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="3" y="3" width="7" height="7"/>
-                        <rect x="14" y="3" width="7" height="7"/>
-                        <rect x="3" y="14" width="7" height="7"/>
-                        <rect x="14" y="14" width="7" height="7"/>
-                    </svg>
-                    8-Puzzle
-                </button>
-                <button class="nav-tab" data-task="arc">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="9"/>
-                        <path d="M12 3v18M3 12h18"/>
-                    </svg>
-                    ARC-AGI
-                </button>
-            </nav>
+<div class="arena">
 
-            <div class="sidebar-footer">
-                <div class="model-status">
-                    <div class="status-dot"></div>
-                    <span>Model Loaded</span>
-                </div>
-            </div>
-        </aside>
-
-        <!-- Main Content -->
-        <main class="main">
-            <header class="header">
-                <div class="header-title">
-                    <h1 id="taskTitle">Maze Solver</h1>
-                    <p id="taskDescription">Navigate from start to goal using the trained agent</p>
-                </div>
-                <div class="header-actions">
-                    <div class="speed-control">
-                        <label>Speed</label>
-                        <input type="range" id="speedSlider" min="10" max="300" value="80">
-                        <span id="speedValue">80ms</span>
-                    </div>
-                </div>
-            </header>
-
-            <div class="content">
-                <div class="canvas-section">
-                    <div class="canvas-wrapper">
-                        <canvas id="taskCanvas"></canvas>
-                        <div class="canvas-overlay" id="canvasOverlay">
-                            <div class="overlay-content">
-                                <div class="overlay-icon">
-                                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                                        <rect x="3" y="3" width="18" height="18" rx="2"/>
-                                        <path d="M3 9h18M9 3v18"/>
-                                    </svg>
-                                </div>
-                                <p>Click <strong>Generate</strong> to create a new task</p>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="action-buttons">
-                        <button id="generateBtn" class="btn btn-primary">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
-                            </svg>
-                            Generate
-                        </button>
-                        <button id="solveBtn" class="btn btn-success" disabled>
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polygon points="5 3 19 12 5 21 5 3"/>
-                            </svg>
-                            Solve
-                        </button>
-                        <button id="resetBtn" class="btn btn-ghost">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-                                <path d="M3 3v5h5"/>
-                            </svg>
-                            Reset
-                        </button>
-                    </div>
-                </div>
-
-                <div class="info-section">
-                    <div class="card status-card">
-                        <div class="card-header">
-                            <h3>Status</h3>
-                        </div>
-                        <div class="card-body">
-                            <div id="statusText" class="status-badge ready">Ready</div>
-                        </div>
-                    </div>
-
-                    <div class="card stats-card">
-                        <div class="card-header">
-                            <h3>Statistics</h3>
-                        </div>
-                        <div class="card-body">
-                            <div class="stat-item">
-                                <span class="stat-label">Board Size</span>
-                                <span class="stat-value" id="gridSize">10 × 10</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-label">Optimal</span>
-                                <span class="stat-value" id="optimalSteps">—</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-label">Agent Steps</span>
-                                <span class="stat-value" id="agentSteps">—</span>
-                            </div>
-                            <div class="stat-item">
-                                <span class="stat-label">Result</span>
-                                <span class="stat-value" id="resultStatus">—</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="card legend-card" id="legendCard">
-                        <div class="card-header">
-                            <h3>Legend</h3>
-                        </div>
-                        <!-- Maze legend -->
-                        <div class="card-body legend-body" id="mazeLegend">
-                            <div class="legend-item"><span class="legend-dot wall"></span>Wall</div>
-                            <div class="legend-item"><span class="legend-dot path"></span>Path</div>
-                            <div class="legend-item"><span class="legend-dot start"></span>Start</div>
-                            <div class="legend-item"><span class="legend-dot goal"></span>Goal</div>
-                            <div class="legend-item"><span class="legend-dot agent"></span>Agent</div>
-                        </div>
-                        <!-- Puzzle legend -->
-                        <div class="card-body legend-body puzzle-legend-body" id="puzzleLegend" style="display:none">
-                            <div class="legend-item"><span class="legend-dot tile-blank"></span>Blank</div>
-                            <div class="legend-item"><span class="legend-dot tile-placed"></span>In place</div>
-                            <div class="legend-item"><span class="legend-dot tile-moving"></span>Misplaced</div>
-                            <div class="legend-item puzzle-goal-note">Goal: 1 2 3 / 4 5 6 / 7 8 _</div>
-                        </div>
-                        <!-- ARC legend -->
-                        <div class="card-body legend-body arc-legend-body" id="arcLegend" style="display:none">
-                            <div class="legend-item"><span class="legend-dot" style="background:#111"></span>0 Black</div>
-                            <div class="legend-item"><span class="legend-dot" style="background:#1e93ff"></span>1 Blue</div>
-                            <div class="legend-item"><span class="legend-dot" style="background:#e53935"></span>2 Red</div>
-                            <div class="legend-item"><span class="legend-dot" style="background:#43a047"></span>3 Green</div>
-                            <div class="legend-item"><span class="legend-dot" style="background:#fdd835"></span>4 Yellow</div>
-                            <div class="legend-item"><span class="legend-dot" style="background:#9e9e9e"></span>5 Grey</div>
-                            <div class="legend-item"><span class="legend-dot" style="background:#e91e8a"></span>6 Pink</div>
-                            <div class="legend-item"><span class="legend-dot" style="background:#ff9800"></span>7 Orange</div>
-                            <div class="legend-item"><span class="legend-dot" style="background:#64b5f6"></span>8 Azure</div>
-                            <div class="legend-item"><span class="legend-dot" style="background:#8b0000"></span>9 Maroon</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </main>
+  <!-- ── HEADER ─────────────────────────────────────────────────── -->
+  <header class="arena-header">
+    <div class="logo-group">
+      <div class="logo-dot" id="logoDot"></div>
+      <div>
+        <div class="logo-title">TRM · ARENA</div>
+        <div class="logo-sub">Transformer Reasoning Model</div>
+      </div>
     </div>
 
-    <script src="app.js"></script>
+    <nav class="task-tabs" id="taskTabs">
+      <button class="tab active" data-task="maze">Maze</button>
+      <button class="tab" data-task="puzzle">8-Puzzle</button>
+      <button class="tab" data-task="sudoku">Sudoku</button>
+      <button class="tab" data-task="arc">ARC</button>
+    </nav>
+
+    <div class="status-pill">
+      <span class="pill-dot" id="pillDot"></span>
+      <span class="pill-text" id="pillText">ready</span>
+    </div>
+  </header>
+
+  <!-- ── BODY ───────────────────────────────────────────────────── -->
+  <div class="arena-body">
+
+    <!-- LEFT PANEL -->
+    <div class="panel panel-left">
+      <div class="panel-header">
+        <span class="panel-label">PUZZLE INPUT</span>
+        <span class="task-badge" id="taskBadge">MAZE · 21×21</span>
+      </div>
+
+      <div class="board-area" id="boardArea">
+        <div class="board-placeholder" id="boardPlaceholder">
+          press <strong>▶ Solve</strong> to begin
+        </div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat">
+          <span class="stat-val" id="statSteps">0</span>
+          <span class="stat-lbl">STEPS</span>
+        </div>
+        <div class="stat">
+          <span class="stat-val" id="statNodes">0</span>
+          <span class="stat-lbl">NODES</span>
+        </div>
+        <div class="stat">
+          <span class="stat-val" id="statTime">0.0s</span>
+          <span class="stat-lbl">TIME</span>
+        </div>
+      </div>
+
+      <div class="controls-row">
+        <button class="btn-solve" id="solveBtn">&#9654;&nbsp; Solve</button>
+        <button class="btn-sec"  id="resetBtn">Reset</button>
+        <button class="btn-sec"  id="shuffleBtn">Shuffle</button>
+        <div class="speed-wrap">
+          <span class="speed-lbl">speed</span>
+          <input type="range" id="speedSlider" min="1" max="5" value="3" class="speed-slider">
+        </div>
+      </div>
+
+      <div class="scrubber-row">
+        <span class="scrubber-lbl">history</span>
+        <input type="range" id="scrubber" min="0" max="0" value="0" class="scrubber-slider">
+        <span class="scrubber-count" id="scrubberCount">0 / 0</span>
+      </div>
+
+      <div class="solved-banner" id="solvedBanner">
+        &#10003; solved &mdash; optimal path found
+      </div>
+    </div>
+
+    <!-- DIVIDER -->
+    <div class="panel-divider"></div>
+
+    <!-- RIGHT PANEL -->
+    <div class="panel panel-right">
+      <div class="panel-header">
+        <span class="panel-label">REASONING TRACE</span>
+        <span class="trm-badge" id="trmBadge">TRM · IDLE</span>
+      </div>
+      <div class="trace-progress-wrap">
+        <div class="trace-progress-bar" id="traceProgressBar"></div>
+      </div>
+      <div class="trace-log" id="traceLog">
+        <div class="trace-empty">// awaiting task input&hellip;</div>
+      </div>
+    </div>
+
+  </div><!-- /arena-body -->
+</div><!-- /arena -->
+
+<script src="app.js"></script>
 </body>
 </html>
